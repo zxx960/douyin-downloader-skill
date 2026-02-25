@@ -1,6 +1,6 @@
 ---
 name: douyin-downloader
-description: Download Douyin (抖音) videos from share links. Use when the user provides a Douyin share link or share text and wants to download the video. Supports both video and note types. Extracts metadata (title, video_id) and downloads the watermark-free version.
+description: Download Douyin (抖音) videos from share links and transcribe audio to text with Doubao ASR (火山引擎). Use when the user provides a Douyin share link or share text and wants to download the video, or when the user asks to convert audio/speech to text. Supports both video and note types, extracts metadata (title, video_id), downloads the watermark-free version, and can run 极速版录音文件识别。
 ---
 
 # Douyin Video Downloader
@@ -76,6 +76,42 @@ title=$(echo "$result" | jq -r '.title')
 node scripts/download_video.js "$download_url" "./downloads/${title}.mp4"
 ```
 
+### 3. Audio to Text (Doubao ASR 极速版)
+
+Transcribe local audio file with Doubao speech recognition.
+
+```bash
+# 推荐：用环境变量保存密钥
+export VOLC_APP_KEY="你的APPID"
+export VOLC_ACCESS_KEY="你的AccessToken"
+
+node scripts/transcribe_audio.js "./audio.mp3" \
+  --out "./downloads/audio_transcript.json" \
+  --text-out "./downloads/audio_transcript.txt"
+```
+
+**Also supports command args:**
+
+```bash
+node scripts/transcribe_audio.js "./audio.wav" \
+  --app-key "你的APPID" \
+  --access-key "你的AccessToken"
+```
+
+**Output (JSON):**
+
+```json
+{
+  "status": "success",
+  "http_status": 200,
+  "api_status_code": "20000000",
+  "api_message": "OK",
+  "log_id": "2025...",
+  "result_text": "识别出的全文",
+  "result": { "...": "完整原始响应" }
+}
+```
+
 ## Notes
 
 - **Watermark removal**: The script automatically converts `playwm` URLs to `play` URLs
@@ -84,6 +120,9 @@ node scripts/download_video.js "$download_url" "./downloads/${title}.mp4"
 - **Mobile UA required**: Uses iPhone user agent for compatibility
 - **Timeout**: 60 seconds per download
 - **Progress**: Displays progress every 10% on stderr
+- **ASR limits (flash API)**: Audio <= 100MB, duration <= 2h, format WAV/MP3/OGG OPUS
+- **ASR endpoint**: `POST https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash`
+- **ASR resource id**: `volc.bigasr.auc_turbo`
 
 ## Error Handling
 
@@ -93,4 +132,4 @@ Common errors:
 - `从HTML中解析视频信息失败` - Page structure changed (script needs update)
 - `下载超时` - Network timeout (try again)
 
-When errors occur, both scripts return JSON with `{ "status": "error", "error": "<message>" }` on stderr and exit with code 1.
+When errors occur, scripts return JSON with `{ "status": "error", "error": "<message>" }` on stderr and exit with code 1.
