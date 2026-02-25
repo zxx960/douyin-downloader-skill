@@ -103,7 +103,7 @@ function buildBodyByMode(mode, appKey, audioB64, modelName) {
     request: {
       model_name: modelName,
       enable_itn: true,
-      enable_punc: false,
+      enable_punc: true,
       enable_ddc: false,
       enable_speaker_info: false,
       enable_channel_split: false,
