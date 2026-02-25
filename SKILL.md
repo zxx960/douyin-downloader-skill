@@ -125,9 +125,10 @@ node scripts/douyin_to_text.js "<抖音分享文本或链接>" \
   --mode standard
 ```
 
-- The script downloads video first, then transcribes automatically.
+- The script downloads video first, converts it to 16k mono mp3, then transcribes automatically.
 - It prints the final transcript text to stdout.
 - It does **not** save transcript `.txt/.json` locally.
+- Requires `ffmpeg` installed.
 
 ## Notes
 

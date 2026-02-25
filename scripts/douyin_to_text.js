@@ -2,6 +2,7 @@
 'use strict';
 
 import { spawnSync } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 
 function runNodeScript(scriptPath, args) {
@@ -13,6 +14,17 @@ function runNodeScript(scriptPath, args) {
     throw new Error(ret.stderr || ret.stdout || `命令失败: ${scriptPath}`);
   }
   return (ret.stdout || '').trim();
+}
+
+function runCmd(cmd, args) {
+  const ret = spawnSync(cmd, args, {
+    encoding: 'utf8',
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (ret.status !== 0) {
+    throw new Error(ret.stderr || ret.stdout || `命令失败: ${cmd}`);
+  }
+  return ret;
 }
 
 function parseArgs(argv) {
@@ -47,6 +59,7 @@ function printHelp() {
 
 说明:
   - 先下载抖音视频
+  - 再转成 16k 单声道 mp3 音频
   - 再自动调用 ASR 转写
   - 只输出文案，不保存本地转写文件
 `);
@@ -58,6 +71,31 @@ function safeJsonParse(text) {
   } catch {
     return null;
   }
+}
+
+function ensureFfmpeg() {
+  const ret = spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' });
+  if (ret.status !== 0) {
+    throw new Error('未检测到 ffmpeg。请先安装 ffmpeg（例如: brew install ffmpeg）');
+  }
+}
+
+function toAudioMp3(videoPath, audioPath) {
+  runCmd('ffmpeg', [
+    '-y',
+    '-i',
+    videoPath,
+    '-vn',
+    '-ac',
+    '1',
+    '-ar',
+    '16000',
+    '-codec:a',
+    'libmp3lame',
+    '-b:a',
+    '64k',
+    audioPath,
+  ]);
 }
 
 async function main() {
@@ -87,9 +125,14 @@ async function main() {
   const videoPath = path.join(opts.outputDir, `${parsed.title}.mp4`);
   runNodeScript(downloadScript, [parsed.download_url, videoPath]);
 
-  // 3) transcribe (no local transcript save)
+  // 3) convert to audio first
+  ensureFfmpeg();
+  const audioPath = path.join(opts.outputDir, `${parsed.title}.asr.tmp.mp3`);
+  toAudioMp3(videoPath, audioPath);
+
+  // 4) transcribe audio (no local transcript save)
   const transRaw = runNodeScript(transcribeScript, [
-    videoPath,
+    audioPath,
     '--app-key',
     opts.apiKey,
     '--resource-id',
@@ -97,6 +140,11 @@ async function main() {
     '--mode',
     opts.mode,
   ]);
+
+  // remove temporary audio file
+  try {
+    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+  } catch {}
 
   const trans = safeJsonParse(transRaw);
   const text = trans?.result_text || '';
