@@ -114,6 +114,21 @@ node scripts/transcribe_audio.js "./audio.wav" \
 }
 ```
 
+### 4. One-shot: Download + Transcribe (No local transcript files)
+
+When user asks "下载后自动转写并把文案发我":
+
+```bash
+node scripts/douyin_to_text.js "<抖音分享文本或链接>" \
+  --api-key "你的API_KEY" \
+  --resource-id "volc.seedasr.auc" \
+  --mode standard
+```
+
+- The script downloads video first, then transcribes automatically.
+- It prints the final transcript text to stdout.
+- It does **not** save transcript `.txt/.json` locally.
+
 ## Notes
 
 - **Watermark removal**: The script automatically converts `playwm` URLs to `play` URLs
