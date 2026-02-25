@@ -5,8 +5,10 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-const API_URL =
+const FLASH_URL =
   'https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash';
+const SUBMIT_URL = 'https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit';
+const QUERY_URL = 'https://openspeech.bytedance.com/api/v3/auc/bigmodel/query';
 
 function parseArgs(argv) {
   const args = [...argv];
@@ -18,26 +20,29 @@ function parseArgs(argv) {
     accessKey: process.env.VOLC_ACCESS_KEY || '',
     resourceId: process.env.VOLC_RESOURCE_ID || 'volc.bigasr.auc_turbo',
     modelName: process.env.VOLC_ASR_MODEL_NAME || 'bigmodel',
+    mode: process.env.VOLC_ASR_MODE || 'auto', // auto|flash|standard
+    pollIntervalMs: Number(process.env.VOLC_POLL_INTERVAL_MS || 1500),
+    pollTimeoutMs: Number(process.env.VOLC_POLL_TIMEOUT_MS || 120000),
   };
 
   while (args.length > 0) {
     const token = args.shift();
     if (!token) continue;
-
     if (!out.inputPath && !token.startsWith('--')) {
       out.inputPath = token;
       continue;
     }
-
     if (token === '--out') out.outputPath = args.shift() || '';
     else if (token === '--text-out') out.textPath = args.shift() || '';
     else if (token === '--app-key') out.appKey = args.shift() || '';
     else if (token === '--access-key') out.accessKey = args.shift() || '';
     else if (token === '--resource-id') out.resourceId = args.shift() || out.resourceId;
     else if (token === '--model') out.modelName = args.shift() || out.modelName;
+    else if (token === '--mode') out.mode = (args.shift() || 'auto').toLowerCase();
+    else if (token === '--poll-interval-ms') out.pollIntervalMs = Number(args.shift() || 1500);
+    else if (token === '--poll-timeout-ms') out.pollTimeoutMs = Number(args.shift() || 120000);
     else if (token === '--help' || token === '-h') out.help = true;
   }
-
   return out;
 }
 
@@ -46,14 +51,13 @@ function printUsage() {
   node scripts/transcribe_audio.js <音频文件路径> [--out result.json] [--text-out result.txt]
 
 参数:
-  --app-key      火山引擎 APP ID (默认读取 VOLC_APP_KEY)
-  --access-key   火山引擎 Access Token (默认读取 VOLC_ACCESS_KEY)
-  --resource-id  资源ID (默认 volc.bigasr.auc_turbo)
+  --app-key      火山引擎 APP ID (默认 VOLC_APP_KEY)
+  --access-key   火山引擎 Access Token (默认 VOLC_ACCESS_KEY)
+  --resource-id  资源ID (如 volc.bigasr.auc_turbo / volc.seedasr.auc)
   --model        模型名 (默认 bigmodel)
-
-说明:
-  - 支持 WAV / MP3 / OGG OPUS
-  - 文件限制: <=100MB, <=2小时
+  --mode         auto|flash|standard (默认 auto)
+  --poll-interval-ms  standard 模式轮询间隔
+  --poll-timeout-ms   standard 模式轮询超时
 `);
 }
 
@@ -71,68 +75,47 @@ function getUuid() {
   });
 }
 
-async function main() {
-  const opts = parseArgs(process.argv.slice(2));
+function chooseMode(mode, resourceId) {
+  if (mode === 'flash' || mode === 'standard') return mode;
+  return resourceId === 'volc.seedasr.auc' ? 'standard' : 'flash';
+}
 
-  if (opts.help) {
-    printUsage();
-    return;
+function buildBodyByMode(mode, appKey, audioB64, modelName) {
+  if (mode === 'flash') {
+    return {
+      user: { uid: String(appKey) },
+      audio: { data: audioB64 },
+      request: { model_name: modelName },
+    };
   }
 
-  if (!opts.inputPath) {
-    printUsage();
-    process.exitCode = 2;
-    return;
-  }
-
-  if (!opts.appKey || !opts.accessKey) {
-    process.stderr.write(
-      JSON.stringify(
-        {
-          status: 'error',
-          error:
-            '缺少鉴权参数：请提供 --app-key / --access-key 或设置 VOLC_APP_KEY / VOLC_ACCESS_KEY',
-        },
-        null,
-        2,
-      ) + '\n',
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  if (!fs.existsSync(opts.inputPath)) {
-    process.stderr.write(
-      JSON.stringify({ status: 'error', error: `文件不存在: ${opts.inputPath}` }, null, 2) +
-        '\n',
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const stat = fs.statSync(opts.inputPath);
-  if (stat.size > 100 * 1024 * 1024) {
-    process.stderr.write(
-      JSON.stringify(
-        { status: 'error', error: '文件超过100MB限制，请先压缩音频后重试' },
-        null,
-        2,
-      ) + '\n',
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const dataB64 = fs.readFileSync(opts.inputPath).toString('base64');
-  const requestId = getUuid();
-
-  const payload = {
-    user: { uid: String(opts.appKey) },
-    audio: { data: dataB64 },
-    request: { model_name: opts.modelName },
+  // standard submit/query body
+  return {
+    user: { uid: '豆包语音' },
+    audio: {
+      data: audioB64,
+      format: 'mp3',
+      codec: 'raw',
+      rate: 16000,
+      bits: 16,
+      channel: 1,
+    },
+    request: {
+      model_name: modelName,
+      enable_itn: true,
+      enable_punc: false,
+      enable_ddc: false,
+      enable_speaker_info: false,
+      enable_channel_split: false,
+      show_utterances: false,
+      vad_segment: false,
+      sensitive_words_filter: '',
+    },
   };
+}
 
-  const res = await fetch(API_URL, {
+async function callFlash(opts, requestId, body) {
+  const res = await fetch(FLASH_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -142,36 +125,139 @@ async function main() {
       'X-Api-Request-Id': requestId,
       'X-Api-Sequence': '-1',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
-
   const text = await res.text();
-  let json;
-  try {
-    json = text ? JSON.parse(text) : {};
-  } catch {
-    json = { raw: text };
+  return { res, text, stage: 'flash' };
+}
+
+async function callStandard(opts, requestId, body) {
+  const submitRes = await fetch(SUBMIT_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': String(opts.appKey),
+      'X-Api-Resource-Id': String(opts.resourceId),
+      'X-Api-Request-Id': requestId,
+      'X-Api-Sequence': '-1',
+    },
+    body: JSON.stringify(body),
+  });
+  const submitText = await submitRes.text();
+
+  if (!submitRes.ok) {
+    return { res: submitRes, text: submitText, stage: 'submit' };
   }
 
-  const statusCode = res.headers.get('x-api-status-code') || '';
-  const statusMsg = res.headers.get('x-api-message') || '';
-  const logId = res.headers.get('x-tt-logid') || '';
+  const start = Date.now();
+  while (Date.now() - start < opts.pollTimeoutMs) {
+    await new Promise((r) => setTimeout(r, opts.pollIntervalMs));
+    const queryRes = await fetch(QUERY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': String(opts.appKey),
+        'X-Api-Resource-Id': String(opts.resourceId),
+        'X-Api-Request-Id': requestId,
+      },
+      body: '{}',
+    });
 
+    const queryText = await queryRes.text();
+    const statusCode = queryRes.headers.get('x-api-status-code') || '';
+    const parsed = parseJsonSafely(queryText);
+    const hasText = !!getResultText(parsed);
+
+    if (queryRes.ok && statusCode === '20000000') {
+      return { res: queryRes, text: queryText, stage: 'query' };
+    }
+
+    // 某些返回不会立即给 20000000，但文本已可用
+    if (queryRes.ok && hasText) {
+      return { res: queryRes, text: queryText, stage: 'query' };
+    }
+
+    // 处理中，继续轮询
+    if (queryRes.ok && (statusCode === '20000001' || queryText.trim() === '{}' || !hasText)) {
+      continue;
+    }
+
+    // non-2xx 或明确错误
+    if (!queryRes.ok) return { res: queryRes, text: queryText, stage: 'query' };
+  }
+
+  return {
+    res: new Response('{}', { status: 408, statusText: 'Query Timeout' }),
+    text: JSON.stringify({ status: 'error', error: 'standard query timeout' }),
+    stage: 'query',
+  };
+}
+
+function parseJsonSafely(text) {
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return { raw: text };
+  }
+}
+
+function getResultText(parsed) {
+  return parsed?.result?.text || parsed?.payload_msg?.result?.text || '';
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  if (opts.help) return printUsage();
+  if (!opts.inputPath) {
+    printUsage();
+    process.exitCode = 2;
+    return;
+  }
+  if (!opts.appKey) {
+    process.stderr.write(JSON.stringify({ status: 'error', error: '缺少 app-key' }, null, 2) + '\n');
+    process.exitCode = 1;
+    return;
+  }
+  if (!fs.existsSync(opts.inputPath)) {
+    process.stderr.write(JSON.stringify({ status: 'error', error: `文件不存在: ${opts.inputPath}` }, null, 2) + '\n');
+    process.exitCode = 1;
+    return;
+  }
+  const stat = fs.statSync(opts.inputPath);
+  if (stat.size > 100 * 1024 * 1024) {
+    process.stderr.write(JSON.stringify({ status: 'error', error: '文件超过100MB限制' }, null, 2) + '\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  const mode = chooseMode(opts.mode, opts.resourceId);
+  const requestId = getUuid();
+  const audioB64 = fs.readFileSync(opts.inputPath).toString('base64');
+  const body = buildBodyByMode(mode, opts.appKey, audioB64, opts.modelName);
+
+  const { res, text, stage } =
+    mode === 'flash'
+      ? await callFlash(opts, requestId, body)
+      : await callStandard(opts, requestId, body);
+
+  const parsed = parseJsonSafely(text);
   const outObj = {
-    status: res.ok && statusCode === '20000000' ? 'success' : 'error',
+    status: res.ok ? 'success' : 'error',
+    mode,
+    stage,
+    request_id: requestId,
     http_status: res.status,
-    api_status_code: statusCode,
-    api_message: statusMsg,
-    log_id: logId,
-    result_text: json?.result?.text || '',
-    result: json,
+    api_status_code: res.headers.get('x-api-status-code') || '',
+    api_message: res.headers.get('x-api-message') || '',
+    log_id: res.headers.get('x-tt-logid') || '',
+    result_text: getResultText(parsed),
+    result: parsed,
   };
 
   if (opts.outputPath) {
     ensureParentDir(opts.outputPath);
     fs.writeFileSync(opts.outputPath, JSON.stringify(outObj, null, 2));
   }
-
   if (opts.textPath) {
     ensureParentDir(opts.textPath);
     fs.writeFileSync(opts.textPath, outObj.result_text || '');
@@ -182,17 +268,10 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-
   process.stdout.write(JSON.stringify(outObj, null, 2) + '\n');
 }
 
 main().catch((e) => {
-  process.stderr.write(
-    JSON.stringify(
-      { status: 'error', error: e?.message || String(e) },
-      null,
-      2,
-    ) + '\n',
-  );
+  process.stderr.write(JSON.stringify({ status: 'error', error: e?.message || String(e) }, null, 2) + '\n');
   process.exitCode = 1;
 });

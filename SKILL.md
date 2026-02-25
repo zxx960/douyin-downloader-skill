@@ -86,6 +86,8 @@ export VOLC_APP_KEY="你的APPID"
 export VOLC_ACCESS_KEY="你的AccessToken"
 
 node scripts/transcribe_audio.js "./audio.mp3" \
+  --resource-id "volc.seedasr.auc" \
+  --mode standard \
   --out "./downloads/audio_transcript.json" \
   --text-out "./downloads/audio_transcript.txt"
 ```
@@ -120,9 +122,11 @@ node scripts/transcribe_audio.js "./audio.wav" \
 - **Mobile UA required**: Uses iPhone user agent for compatibility
 - **Timeout**: 60 seconds per download
 - **Progress**: Displays progress every 10% on stderr
-- **ASR limits (flash API)**: Audio <= 100MB, duration <= 2h, format WAV/MP3/OGG OPUS
-- **ASR endpoint**: `POST https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash`
-- **ASR resource id**: `volc.bigasr.auc_turbo`
+- **ASR limits**: Audio <= 100MB, duration <= 2h, format WAV/MP3/OGG OPUS
+- **ASR mode**:
+  - `flash`（极速版）: `POST /api/v3/auc/bigmodel/recognize/flash`, resource `volc.bigasr.auc_turbo`
+  - `standard`（标准版）: `POST /api/v3/auc/bigmodel/submit` + `query`, resource `volc.seedasr.auc`
+- **ASR mode auto-switch**: resource 为 `volc.seedasr.auc` 时自动走 `standard`
 
 ## Error Handling
 
