@@ -32,6 +32,17 @@ node -v
 ffmpeg -version
 ```
 
+## 开通豆包语音大模型
+
+控制台开通地址：
+
+`https://console.volcengine.com/speech/new/overview?projectName=default`
+
+建议先在控制台确认：
+
+- 已开通语音识别能力
+- 资源已授权到当前应用（如 `volc.seedasr.auc` / `volc.bigasr.auc_turbo`）
+
 ## 快速开始
 
 进入项目目录：
