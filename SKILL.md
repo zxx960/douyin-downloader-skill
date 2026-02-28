@@ -153,3 +153,36 @@ Common errors:
 - `下载超时` - Network timeout (try again)
 
 When errors occur, scripts return JSON with `{ "status": "error", "error": "<message>" }` on stderr and exit with code 1.
+
+## Installation & Configuration
+
+After installing this skill, you need to configure it in your `openclaw.json` file:
+
+```json
+{
+  "skills": {
+    "entries": {
+      "douyin-downloader": {
+        "enabled": true,
+        "env": {
+          "VOLC_APP_KEY": "xxx",
+          "VOLC_ACCESS_KEY": "xxx"
+        }
+      }
+    }
+  }
+}
+```
+
+**Configuration details:**
+- `enabled`: Set to `true` to enable the skill
+- `VOLC_APP_KEY`: Your Volcengine (火山引擎) App ID for Doubao ASR
+- `VOLC_ACCESS_KEY`: Your Volcengine Access Token for Doubao ASR
+
+**To get your API credentials:**
+1. Register at [Volcengine Console](https://console.volcengine.com/)
+2. Create an application for Speech Recognition (ASR)
+3. Obtain your App ID and Access Token from the application settings
+4. Replace `xxx` in the configuration with your actual credentials
+
+The skill will use these environment variables automatically when performing audio transcription with Doubao ASR.

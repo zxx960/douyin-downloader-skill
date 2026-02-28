@@ -32,6 +32,39 @@ node -v
 ffmpeg -version
 ```
 
+## 安装与配置
+
+安装此技能后，需要在 `openclaw.json` 文件中进行配置：
+
+```json
+{
+  "skills": {
+    "entries": {
+      "douyin-downloader": {
+        "enabled": true,
+        "env": {
+          "VOLC_APP_KEY": "xxx",
+          "VOLC_ACCESS_KEY": "xxx"
+        }
+      }
+    }
+  }
+}
+```
+
+**配置说明：**
+- `enabled`: 设置为 `true` 启用技能
+- `VOLC_APP_KEY`: 你的火山引擎 App ID（豆包语音）
+- `VOLC_ACCESS_KEY`: 你的火山引擎 Access Token（豆包语音）
+
+**获取 API 凭证：**
+1. 访问 [火山引擎控制台](https://console.volcengine.com/)
+2. 创建语音识别（ASR）应用
+3. 从应用设置中获取 App ID 和 Access Token
+4. 将配置中的 `xxx` 替换为你的实际凭证
+
+技能在进行豆包语音转写时会自动使用这些环境变量。
+
 ## 开通豆包语音大模型
 
 控制台开通地址：
