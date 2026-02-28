@@ -34,7 +34,7 @@ ffmpeg -version
 
 ## 安装与配置
 
-安装此技能后，需要在 `openclaw.json` 文件中进行配置：
+安装此技能后，需要在 `openclaw.json` 文件中进行配置并重启：
 
 ```json
 {
